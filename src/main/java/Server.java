@@ -4,14 +4,12 @@ import org.apache.http.NameValuePair;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
-import java.net.URLDecoder;
 
 public class Server {
     public static final String GET = "GET";
@@ -64,77 +62,27 @@ public class Server {
 
     public void handlerRequest(BufferedInputStream in, BufferedOutputStream out) {
         try {
-            in.mark(LIMIT);
-            final byte[] buffer = new byte[LIMIT];
-            final int read = in.read(buffer);
-            // request line
-            final byte[] requestLineDelimiter = new byte[]{'\r', '\n'};
-            final int requestLineEnd = indexOf(buffer, requestLineDelimiter, 0, read);
-            if (requestLineEnd == -1) {
-                badRequest(out);
-                return; // just close socket
-            }
-            final String[] requestLine = new String(Arrays.copyOf(buffer, requestLineEnd)).split(" ");
-            if (requestLine.length != 3) {
-                badRequest(out);
-                return; // just close socket
-            }
-            //method
-            final String method = requestLine[0];
-            if (!allowedMethods.contains(method)) {
+            Request request = Request.getRequest(in, LIMIT);
+            if (!allowedMethods.contains(request.getMethod())) {
                 badRequest(out);
                 return;
             }
-            System.out.println(method);
-            //path
-            final String path = requestLine[1];
-            if (!path.startsWith("/")) {
-                badRequest(out);
+            if (validPaths.contains(request.getPath())) {
+                response(out, request.getPath());
                 return;
             }
-            if (validPaths.contains(path)) {
-                response(out, path);
-                return;
-            }
-            System.out.println(path);
-
-            if (method.equals(GET)) {
+            System.out.println(request.getheaders());
+            if (request.getMethod().equals(GET)) {
                 //List<KeyValueParam> listKeyValueParam = getQueryParams(path);
-                final int numberCh = path.indexOf('?');
-                final String requestKeyValue = path.substring(numberCh + 1);
-                List<NameValuePair> paramsGet = getParams(requestKeyValue);
+                final int numberCh = request.getPath().indexOf('?');
+                final String requestKeyValue = request.getPath().substring(numberCh + 1);
+                List<NameValuePair> paramsGet = request.getParams(requestKeyValue);
                 System.out.println(paramsGet);
-                //System.out.println(getParam(paramsGet, "value"));
-            }
-            //protocol
-            final String procolVersion = requestLine[2];
-            System.out.println(procolVersion);
-            //headers
-            final byte[] headersDelimiter = new byte[]{'\r', '\n', '\r', '\n'};
-            final int headersStart = requestLineEnd + requestLineDelimiter.length;
-            final int headersEnd = indexOf(buffer, headersDelimiter, headersStart, read);
-            if (headersEnd == -1) {
-                badRequest(out);
-                return; // just close socket
-            }
-            final byte[] headersBytes = readNumberBytes(buffer, headersStart, headersEnd);
-            final List<String> headers = Arrays.asList(new String(headersBytes).split("\r\n"));
-            System.out.println("Headers: " + headers.toString());
-            if (!method.equals(GET)) {
-                // вычитываем Content-Length, чтобы прочитать body
-                final Optional<String> contentLength = extractHeader(headers, "Content-Length");
-                final Optional<String> contentType = extractHeader(headers, "Content-Type");
-                if (contentLength.isPresent()) {
-                    //final int length = Integer.parseInt(contentLength.get());
-                    final byte[] bodyBytes = readNumberBytes(buffer, headersEnd + headersDelimiter.length, read);
-                    final String body = new String(bodyBytes);
-                    System.out.println(body);
-                    if (contentType.get().equals("application/x-www-form-urlencoded")) {
-                        List<NameValuePair> paramsPost = getParams(body);
-                        System.out.println(paramsPost);
-                        //System.out.println(getParam(paramsPost, "value"));
-                    }
-                }
+                //System.out.println(request.getParam(paramsGet, "value"));
+            } else {
+                List<NameValuePair> paramsPost = request.getParams(request.getBody());
+                System.out.println(paramsPost);
+                //System.out.println(request.getParam(paramsPost, "value"));
             }
             out.write((
                     "HTTP/1.1 200 OK\r\n" +
@@ -212,92 +160,5 @@ public class Server {
         } catch (IOException e) {
             System.out.println(e.getMessage());
         }
-    }
-
-    public static int indexOf(byte[] array, byte[] target, int start, int max) {
-        outer:
-        for (int i = start; i < max - target.length + 1; i++) {
-            for (int j = 0; j < target.length; j++) {
-                if (array[i + j] != target[j]) {
-                    continue outer;
-                }
-            }
-            return i;
-        }
-        return -1;
-    }
-
-    public static byte[] readNumberBytes(byte[] buffer, int start, int max) {
-        int bytes = max - start;
-        byte[] buf = new byte[bytes];
-        for (int a = 0; a < bytes; a++) {
-            byte b = buffer[start];
-            buf[a] = b;
-            start++;
-        }
-        return buf;
-    }
-
-    public static Optional<String> extractHeader(List<String> headers, String header) {
-        return headers.stream()
-                .filter(o -> o.startsWith(header))
-                .map(o -> o.substring(o.indexOf(" ")))
-                .map(String::trim)
-                .findFirst();
-    }
-
-    public static class KeyValueParam {
-        private String key;
-        private String value;
-        KeyValueParam(String key, String value) {
-            this.key = key;
-            this.value = value;
-        }
-        public String getKey() {
-            return key;
-        }
-        public String getValue(String key) {
-            return value;
-        }
-        @Override
-        public String toString() {
-            return "(key) " + key + " = (value) " + value;
-        }
-    }
-
-    public List<NameValuePair> getParams(String requestKeyValue) {
-        try {
-            /*
-            final String[] params = requestKeyValue.split("&");
-            for (String param : params) {
-                int equalsCh = param.indexOf('=');
-                String key = URLDecoder.decode(param.substring(0, equalsCh));
-                String value = URLDecoder.decode(param.substring(equalsCh + 1));
-                if (key != null & value != null) listKeyValueParam.add(new KeyValueParam(key, value));
-            }
-            System.out.println(listKeyValueParam.toString());
-            */
-            List<NameValuePair> params = URLEncodedUtils.parse(requestKeyValue, StandardCharsets.UTF_8);
-            return params;
-        } catch (Exception e) {
-            System.out.println(e.getMessage());
-        }
-        return null;
-    }
-
-    public String getParam(List<NameValuePair> params, String key) {
-        /*
-        for (KeyValueParam param : params) {
-            if ((param.getKey()).equals(key)) {
-                String value = param.getValue(key);
-                return value;
-            }
-        }
-         */
-        for (NameValuePair param : params) {
-            if ((param.getName()).equals(key))
-                return param.getValue();
-        }
-        return null;
     }
 }
