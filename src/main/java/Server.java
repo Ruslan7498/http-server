@@ -9,59 +9,40 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Server {
     public static final String GET = "GET";
     public static final String POST = "POST";
     public static final int LIMIT = 4096; //лимит на запрос
     public static final List<String> allowedMethods = Arrays.asList(GET, POST);
-    private ServerSocket serverSocket;
-    private Socket socket;
-    private List<String> validPaths;
-    private Queue<Thread> threadPool;
+    private ExecutorService executorService;
+    //private File directoryPublic = new File("public");
+    final List<String> validPaths = Arrays.asList("/index.html", "/spring.svg", "/spring.png",
+            "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html",
+            "/classic.html", "/events.html", "/events.js", "/default-get.html");
 
-    Server(List<String> validPaths, int port, int cpacityThreadPool) {
-        //threadPool = new ConcurrentLinkedQueue<Thread>();
-        threadPool = new ArrayBlockingQueue<>(cpacityThreadPool, true);
-        this.validPaths = validPaths;
-        try {
-            this.serverSocket = new ServerSocket(port);
+    Server(int cpacityThreadPool) {
+        this.executorService = Executors.newFixedThreadPool(cpacityThreadPool);
+    }
+
+    public void startServer(int port) {
+        try (final ServerSocket serverSocket = new ServerSocket(port);) {
+            while (true) {
+                final Socket socket = serverSocket.accept();
+                executorService.submit(() -> handlerRequest(socket));
+            }
         } catch (IOException e) {
             System.out.println(e.getMessage());
         }
     }
 
-    public void startServer() {
-        while (true)
-            try {
-                socket = serverSocket.accept();
-                Thread handler = new Thread(new Handler());
-                threadPool.add(handler);
-                handler.start();
-            } catch (IllegalStateException e) {
-                System.out.println("ThreadPool is full");
-                response503();
-            } catch (IOException e) {
-                System.out.println(e.getMessage());
-            }
-    }
-
-    class Handler implements Runnable {
-        @Override
-        public void run() {
-            try {
-                BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
-                BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream());
-                handlerRequest(in, out);
-            } catch (IOException e) {
-                System.out.println(e.getMessage());
-            }
-        }
-    }
-
-    public void handlerRequest(BufferedInputStream in, BufferedOutputStream out) {
-        try {
+    public void handlerRequest(Socket socket) {
+        try (
+                final BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
+                final BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())
+        ) {
             Request request = Request.getRequest(in, LIMIT);
             if (!allowedMethods.contains(request.getMethod())) {
                 badRequest(out);
@@ -76,8 +57,10 @@ public class Server {
                 //List<KeyValueParam> listKeyValueParam = getQueryParams(path);
                 final int numberCh = request.getPath().indexOf('?');
                 final String requestKeyValue = request.getPath().substring(numberCh + 1);
+                final String requestNew = request.getPath().substring(0, numberCh);
                 List<NameValuePair> paramsGet = request.getParams(requestKeyValue);
                 System.out.println(paramsGet);
+                if (validPaths.contains(requestNew)) response(out, requestNew);
                 //System.out.println(request.getParam(paramsGet, "value"));
             } else {
                 List<NameValuePair> paramsPost = request.getParams(request.getBody());
@@ -148,8 +131,8 @@ public class Server {
         }
     }
 
-    public void response503() {
-        try (BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())) {
+    public void response503(BufferedOutputStream out) {
+        try {
             out.write((
                     "HTTP/1.1 503 Service Unavailable\r\n" +
                             "Content-Length: 0\r\n" +
