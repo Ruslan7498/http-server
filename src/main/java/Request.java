@@ -5,15 +5,17 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.net.URLDecoder;
 
 public class Request {
     public static final String GET = "GET";
     public static final String POST = "POST";
+    public static final int LIMIT = 4096; //лимит на запрос
     private final String method;
     private final String path;
     private final Map<String, String> headers;
     private final String body;
+    private List<NameValuePair> params;
+    private String requestNewPath;
 
     public Request(String method, String path, Map<String, String> headers, String body) {
         this.method = method;
@@ -25,20 +27,27 @@ public class Request {
     public String getMethod() {
         return method;
     }
+
     public String getPath() {
         return path;
     }
+
     public Map<String, String> getheaders() {
         return headers;
     }
+
     public String getBody() {
         return body;
     }
 
-    public static Request getRequest(BufferedInputStream in, int limit) {
+    public String getRequestNewPath() {
+        return requestNewPath;
+    }
+
+    public static Request getRequest(BufferedInputStream in) {
         try {
-            in.mark(limit);
-            final byte[] buffer = new byte[limit];
+            in.mark(LIMIT);
+            final byte[] buffer = new byte[LIMIT];
             final int read = in.read(buffer);
             // requestline
             final byte[] requestLineDelimiter = new byte[]{'\r', '\n'};
@@ -121,59 +130,34 @@ public class Request {
         }
         return buf;
     }
-    public static class KeyValueParam {
-        private String key;
-        private String value;
 
-        KeyValueParam(String key, String value) {
-            this.key = key;
-            this.value = value;
-        }
-        public String getKey() {
-            return key;
-        }
-        public String getValue(String key) {
-            return value;
-        }
-        @Override
-        public String toString() {
-            return "(key) " + key + " = (value) " + value;
-        }
-    }
-
-    public List<NameValuePair> getParams(String requestKeyValue) {
+    public void getQueryParams() {
         try {
-            /*
-            final String[] params = requestKeyValue.split("&");
-            for (String param : params) {
-                int equalsCh = param.indexOf('=');
-                String key = URLDecoder.decode(param.substring(0, equalsCh));
-                String value = URLDecoder.decode(param.substring(equalsCh + 1));
-                if (key != null & value != null) listKeyValueParam.add(new KeyValueParam(key, value));
-            }
-            System.out.println(listKeyValueParam.toString());
-            */
-            List<NameValuePair> params = URLEncodedUtils.parse(requestKeyValue, StandardCharsets.UTF_8);
-            return params;
+            final int numberCh = this.path.indexOf('?');
+            final String requestKeyValue = this.path.substring(numberCh + 1);
+            requestNewPath = this.path.substring(0, numberCh);
+            params = URLEncodedUtils.parse(requestKeyValue, StandardCharsets.UTF_8);
+            System.out.println(params);
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }
-        return null;
     }
 
-    public String getParam(List<NameValuePair> params, String key) {
-        /*
-        for (KeyValueParam param : params) {
-            if ((param.getKey()).equals(key)) {
-                String value = param.getValue(key);
-                return value;
-            }
+    public void getPostParams() {
+        try {
+            params = URLEncodedUtils.parse(this.body, StandardCharsets.UTF_8);
+            System.out.println(params);
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
         }
-         */
+    }
+
+    public List<String> getParam(String key) {
+        List<String> listParams = new ArrayList<>();
         for (NameValuePair param : params) {
             if ((param.getName()).equals(key))
-                return param.getValue();
+                listParams.add(param.getValue());
         }
-        return null;
+        return listParams;
     }
 }

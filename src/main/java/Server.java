@@ -1,6 +1,3 @@
-import org.apache.http.client.utils.URLEncodedUtils;
-import org.apache.http.NameValuePair;
-
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -15,13 +12,12 @@ import java.util.concurrent.Executors;
 public class Server {
     public static final String GET = "GET";
     public static final String POST = "POST";
-    public static final int LIMIT = 4096; //лимит на запрос
     public static final List<String> allowedMethods = Arrays.asList(GET, POST);
     private ExecutorService executorService;
     //private File directoryPublic = new File("public");
     final List<String> validPaths = Arrays.asList("/index.html", "/spring.svg", "/spring.png",
             "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html",
-            "/classic.html", "/events.html", "/events.js", "/default-get.html");
+            "/classic.html", "/events.html", "/events.js");
 
     Server(int cpacityThreadPool) {
         this.executorService = Executors.newFixedThreadPool(cpacityThreadPool);
@@ -43,7 +39,7 @@ public class Server {
                 final BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
                 final BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())
         ) {
-            Request request = Request.getRequest(in, LIMIT);
+            Request request = Request.getRequest(in);
             if (!allowedMethods.contains(request.getMethod())) {
                 badRequest(out);
                 return;
@@ -54,18 +50,15 @@ public class Server {
             }
             System.out.println(request.getheaders());
             if (request.getMethod().equals(GET)) {
-                //List<KeyValueParam> listKeyValueParam = getQueryParams(path);
-                final int numberCh = request.getPath().indexOf('?');
-                final String requestKeyValue = request.getPath().substring(numberCh + 1);
-                final String requestNew = request.getPath().substring(0, numberCh);
-                List<NameValuePair> paramsGet = request.getParams(requestKeyValue);
-                System.out.println(paramsGet);
-                if (validPaths.contains(requestNew)) response(out, requestNew);
-                //System.out.println(request.getParam(paramsGet, "value"));
+                request.getQueryParams();
+                System.out.println("value = " + request.getParam("value"));
+                if (validPaths.contains(request.getRequestNewPath()))
+                    response(out, request.getRequestNewPath());
             } else {
-                List<NameValuePair> paramsPost = request.getParams(request.getBody());
-                System.out.println(paramsPost);
-                //System.out.println(request.getParam(paramsPost, "value"));
+                request.getPostParams();
+                System.out.println("value = " + request.getParam("value"));
+                if (validPaths.contains(request.getPath()))
+                    response(out, request.getPath());
             }
             out.write((
                     "HTTP/1.1 200 OK\r\n" +
@@ -85,7 +78,11 @@ public class Server {
             final String mimeType = Files.probeContentType(filePath);
             // special case for classic
             if (path.equals("/classic.html")) {
-                final String template = Files.probeContentType(filePath);
+                final byte[] byteTemplate = Files.readAllBytes(filePath);
+                ByteArrayOutputStream byteArrayOutputStreamut = new ByteArrayOutputStream();
+                byteArrayOutputStreamut.write(byteTemplate);
+                String template = byteArrayOutputStreamut.toString();
+                System.out.println(template);
                 final byte[] content = template.replace(
                         "{time}",
                         LocalDateTime.now().toString()
@@ -99,7 +96,7 @@ public class Server {
                 ).getBytes());
                 out.write(content);
                 out.flush();
-                return;
+                //return;
             }
             final long length;
             length = Files.size(filePath);
