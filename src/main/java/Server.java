@@ -1,86 +1,89 @@
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Queue;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Server {
-    private ServerSocket serverSocket;
-    private Socket socket;
-    private List<String> validPaths;
-    private Queue<Thread> threadPool;
+    public static final String GET = "GET";
+    public static final String POST = "POST";
+    public static final List<String> allowedMethods = Arrays.asList(GET, POST);
+    private ExecutorService executorService;
+    //private File directoryPublic = new File("public");
+    final List<String> validPaths = Arrays.asList("/index.html", "/spring.svg", "/spring.png",
+            "/resources.html", "/styles.css", "/app.js", "/links.html", "/forms.html",
+            "/classic.html", "/events.html", "/events.js");
 
-    Server(List<String> validPaths, int port, int cpacityThreadPool) {
-        //threadPool = new ConcurrentLinkedQueue<Thread>();
-        threadPool = new ArrayBlockingQueue<>(cpacityThreadPool, true);
-        this.validPaths = validPaths;
-        try {
-            this.serverSocket = new ServerSocket(port);
+    Server(int cpacityThreadPool) {
+        this.executorService = Executors.newFixedThreadPool(cpacityThreadPool);
+    }
+
+    public void startServer(int port) {
+        try (final ServerSocket serverSocket = new ServerSocket(port);) {
+            while (true) {
+                final Socket socket = serverSocket.accept();
+                executorService.submit(() -> handlerRequest(socket));
+            }
         } catch (IOException e) {
             System.out.println(e.getMessage());
         }
     }
 
-    public void startServer() {
-        while (true)
-            try {
-                socket = serverSocket.accept();
-                Thread handler = new Thread(new Handler());
-                threadPool.add(handler);
-                handler.start();
-            } catch (IllegalStateException e) {
-                System.out.println("ThreadPool is full");
-                response503();
-            } catch (IOException e) {
-                System.out.println(e.getMessage());
-            }
-    }
-
-    class Handler implements Runnable {
-        @Override
-        public void run() {
-            try {
-                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream());
-                handlerRequest(in, out);
-            } catch (IOException e) {
-                System.out.println(e.getMessage());
-            }
-        }
-    }
-
-    public void handlerRequest(BufferedReader in, BufferedOutputStream out) {
-        try {
-            String requestLine = in.readLine();
-            if (requestLine == null) return;
-            System.out.println(requestLine);
-            final String[] parts = requestLine.split(" ");
-
-            if (parts.length != 3) {
-                return; // just close socket
-            }
-
-            final String path = parts[1];
-            if (!validPaths.contains(path)) {
+    public void handlerRequest(Socket socket) {
+        try (
+                final BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
+                final BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())
+        ) {
+            Request request = Request.getRequest(in);
+            if (!allowedMethods.contains(request.getMethod())) {
                 badRequest(out);
                 return;
             }
 
+            if (validPaths.contains(request.getPath())) {
+                response(out, request.getPath());
+                return;
+            }
+            System.out.println(request.getheaders());
+            if (request.getMethod().equals(GET)) {
+                System.out.println(request.getQueryParams());
+                System.out.println("value = " + request.getQueryParam("value"));
+                if (validPaths.contains(request.getRequestNewPath()))
+                    response(out, request.getRequestNewPath());
+            } else {
+                System.out.println(request.getPostParams());
+                System.out.println("value = " + request.getQueryParam("value"));
+                if (validPaths.contains(request.getRequestNewPath()))
+                    response(out, request.getRequestNewPath());
+            }
+            out.write((
+                    "HTTP/1.1 200 OK\r\n" +
+                            "Content-Length: 0\r\n" +
+                            "Connection: close\r\n" +
+                            "\r\n"
+            ).getBytes());
+            out.flush();
+        } catch (IOException e) {
+            System.out.println(e.getMessage());
+        }
+    }
+
+    public void response(BufferedOutputStream out, String path) {
+        try {
             final Path filePath = FileSystems.getDefault().getPath(".", "public", path);
             final String mimeType = Files.probeContentType(filePath);
-
             // special case for classic
             if (path.equals("/classic.html")) {
-                final String template = Files.probeContentType(filePath);
+                final byte[] byteTemplate = Files.readAllBytes(filePath);
+                ByteArrayOutputStream byteArrayOutputStreamut = new ByteArrayOutputStream();
+                byteArrayOutputStreamut.write(byteTemplate);
+                String template = byteArrayOutputStreamut.toString();
+                System.out.println(template);
                 final byte[] content = template.replace(
                         "{time}",
                         LocalDateTime.now().toString()
@@ -94,10 +97,10 @@ public class Server {
                 ).getBytes());
                 out.write(content);
                 out.flush();
-                return;
+                //return;
             }
-
-            final long length = Files.size(filePath);
+            final long length;
+            length = Files.size(filePath);
             out.write((
                     "HTTP/1.1 200 OK\r\n" +
                             "Content-Type: " + mimeType + "\r\n" +
@@ -108,7 +111,7 @@ public class Server {
             Files.copy(filePath, out);
             out.flush();
         } catch (IOException e) {
-            System.out.println(e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -126,8 +129,8 @@ public class Server {
         }
     }
 
-    public void response503() {
-        try(BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())) {
+    public void response503(BufferedOutputStream out) {
+        try {
             out.write((
                     "HTTP/1.1 503 Service Unavailable\r\n" +
                             "Content-Length: 0\r\n" +
