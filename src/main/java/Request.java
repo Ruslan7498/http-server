@@ -22,6 +22,7 @@ public class Request {
         this.path = path;
         this.headers = headers;
         this.body = body;
+        parseParams();
     }
 
     public String getMethod() {
@@ -107,6 +108,22 @@ public class Request {
         return null;
     }
 
+    public void parseParams() {
+        String requestKeyValue;
+        if (path.contains("?")) {
+            final int numberCh = path.indexOf('?');
+            requestKeyValue = path.substring(numberCh + 1);
+            this.requestNewPath = path.substring(0, numberCh);
+        } else {
+            requestKeyValue = path;
+        }
+        if (getMethod().equals(GET)) {
+            this.params = URLEncodedUtils.parse(requestKeyValue, StandardCharsets.UTF_8);
+        } else {
+            params = URLEncodedUtils.parse(this.body, StandardCharsets.UTF_8);
+        }
+    }
+
     public static int indexOf(byte[] array, byte[] target, int start, int max) {
         outer:
         for (int i = start; i < max - target.length + 1; i++) {
@@ -131,31 +148,18 @@ public class Request {
         return buf;
     }
 
-    public void getQueryParams() {
-        try {
-            final int numberCh = this.path.indexOf('?');
-            final String requestKeyValue = this.path.substring(numberCh + 1);
-            requestNewPath = this.path.substring(0, numberCh);
-            params = URLEncodedUtils.parse(requestKeyValue, StandardCharsets.UTF_8);
-            System.out.println(params);
-        } catch (Exception e) {
-            System.out.println(e.getMessage());
-        }
+    public List<NameValuePair> getQueryParams() {
+        return params;
     }
 
-    public void getPostParams() {
-        try {
-            params = URLEncodedUtils.parse(this.body, StandardCharsets.UTF_8);
-            System.out.println(params);
-        } catch (Exception e) {
-            System.out.println(e.getMessage());
-        }
+    public List<NameValuePair> getPostParams() {
+        return params;
     }
 
-    public List<String> getParam(String key) {
+    public List<String> getQueryParam(String name) {
         List<String> listParams = new ArrayList<>();
         for (NameValuePair param : params) {
-            if ((param.getName()).equals(key))
+            if ((param.getName()).equals(name))
                 listParams.add(param.getValue());
         }
         return listParams;

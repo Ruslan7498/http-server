@@ -44,21 +44,22 @@ public class Server {
                 badRequest(out);
                 return;
             }
+
             if (validPaths.contains(request.getPath())) {
                 response(out, request.getPath());
                 return;
             }
             System.out.println(request.getheaders());
             if (request.getMethod().equals(GET)) {
-                request.getQueryParams();
-                System.out.println("value = " + request.getParam("value"));
+                System.out.println(request.getQueryParams());
+                System.out.println("value = " + request.getQueryParam("value"));
                 if (validPaths.contains(request.getRequestNewPath()))
                     response(out, request.getRequestNewPath());
             } else {
-                request.getPostParams();
-                System.out.println("value = " + request.getParam("value"));
-                if (validPaths.contains(request.getPath()))
-                    response(out, request.getPath());
+                System.out.println(request.getPostParams());
+                System.out.println("value = " + request.getQueryParam("value"));
+                if (validPaths.contains(request.getRequestNewPath()))
+                    response(out, request.getRequestNewPath());
             }
             out.write((
                     "HTTP/1.1 200 OK\r\n" +
